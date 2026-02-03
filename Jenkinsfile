@@ -1,23 +1,26 @@
 pipeline {
     agent any
     environment {
-        AWS_CREDENTIALS = credentials('aws-keys') // AWS Access/Secret
+        AWS_CREDENTIALS = credentials('aws-keys')
     }
     stages {
         stage('Checkout') {
-            steps { checkout scm }
+            steps {
+                checkout scm
+            }
         }
         stage('Terraform Apply') {
             steps {
-                sh 'terraform init'
-                sh 'terraform apply -auto-approve' [cite: 31]
+                withCredentials([usernamePassword(credentialsId: 'aws-keys', passwordVariable: 'AWS_SECRET_ACCESS_KEY', usernameVariable: 'AWS_ACCESS_KEY_ID')]) {
+                    sh 'terraform init'
+                    sh 'terraform apply -auto-approve' // Remove the citation tag here
+                }
             }
         }
         stage('Ansible Deploy') {
             steps {
-                // Wait for SSH to become ready
                 sleep 30 
-                sh 'ansible-playbook -i inventory.ini setup.yml --private-key /path/to/sshless.pem'
+                sh 'ansible-playbook -i inventory.ini setup.yml'
             }
         }
     }
