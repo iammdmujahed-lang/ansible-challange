@@ -1,39 +1,4 @@
----
-- name: OS Hardening for Linux
-  hosts: all
-  become: yes
-  tasks:
-    - name: Disable SELinux on Amazon Linux
-      selinux:
-        state: disabled
-      when: ansible_os_family == "RedHat"
-
-    - name: Disable Firewalls
-      service:
-        name: "{{ (ansible_os_family == 'RedHat') | ternary('firewalld', 'ufw') }}"
-        state: stopped
-        enabled: no
-      ignore_errors: yes # This prevents the play from failing if firewalld isn't present
-
-- name: Configure Backend (Netdata)
-  hosts: backend
-  become: yes
-  tasks:
-    - name: Install Netdata from official repo
-      shell: "wget -O /tmp/netdata-kickstart.sh https://get.netdata.cloud/kickstart.sh && sh /tmp/netdata-kickstart.sh --non-interactive"
-    
-    - name: Ensure Netdata runs on port 19999
-      lineinfile:
-        path: /etc/netdata/netdata.conf
-        regexp: 'default port = '
-        line: '    default port = 19999'
-      notify: Restart Netdata
-
-  handlers:
-    - name: Restart Netdata
-      service:
-        name: netdata
-        state: restarted
+# ... (Keep the OS Hardening and Backend sections exactly as they are) ...
 
 - name: Configure Frontend (Nginx Proxy)
   hosts: frontend
@@ -42,16 +7,24 @@
     - name: Install Nginx
       package:
         name: nginx
-        state: present
-    
+        state: latest
+
+    - name: Remove default nginx configuration to avoid port conflict
+      file:
+        path: /etc/nginx/conf.d/default.conf
+        state: absent
+
     - name: Configure Proxy from Port 80 to Backend Port 19999
       copy:
         dest: /etc/nginx/conf.d/proxy.conf
         content: |
           server {
               listen 80;
+              server_name _;
               location / {
                   proxy_pass http://{{ groups['backend'][0] }}:19999;
+                  proxy_set_header Host $host;
+                  proxy_set_header X-Real-IP $remote_addr;
               }
           }
       notify: Reload Nginx
@@ -60,4 +33,4 @@
     - name: Reload Nginx
       service:
         name: nginx
-        state: reloaded
+        state: restarted # Use restarted to ensure clean state
