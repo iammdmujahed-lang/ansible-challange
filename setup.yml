@@ -3,12 +3,12 @@
   hosts: all
   become: yes
   tasks:
-    - name: Disable SELinux (Amazon Linux)
+    - name: Disable SELinux on Amazon Linux
       selinux:
         state: disabled
       when: ansible_os_family == "RedHat"
 
-    - name: Disable Firewalld/UFW
+    - name: Disable Firewalls
       service:
         name: "{{ (ansible_os_family == 'RedHat') | ternary('firewalld', 'ufw') }}"
         state: stopped
@@ -19,9 +19,9 @@
   become: yes
   tasks:
     - name: Install Netdata from official repo
-      [cite_start]shell: curl -s https://my-netdata.io/kickstart.sh | sh -s -- --non-interactive [cite: 7]
+      shell: curl -s https://my-netdata.io/kickstart.sh | sh -s -- --non-interactive
     
-    - name: Ensure Netdata runs on 19999
+    - name: Ensure Netdata runs on port 19999
       lineinfile:
         path: /etc/netdata/netdata.conf
         regexp: 'default port = '
@@ -30,16 +30,20 @@
 
   handlers:
     - name: Restart Netdata
-      service: name=netdata state=restarted
+      service:
+        name: netdata
+        state: restarted
 
 - name: Configure Frontend (Nginx Proxy)
   hosts: frontend
   become: yes
   tasks:
     - name: Install Nginx
-      yum: name=nginx state=present
+      package:
+        name: nginx
+        state: present
     
-    - name: Configure Proxy to Backend
+    - name: Configure Proxy from Port 80 to Backend Port 19999
       copy:
         dest: /etc/nginx/conf.d/proxy.conf
         content: |
@@ -53,4 +57,6 @@
 
   handlers:
     - name: Reload Nginx
-      service: name=nginx state=reloaded
+      service:
+        name: nginx
+        state: reloaded
