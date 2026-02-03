@@ -3,12 +3,10 @@
   hosts: all
   become: yes
   tasks:
-    - name: Disable SELinux on Amazon Linux
-      selinux:
-        state: disabled
+    - name: Disable SELinux
+      selinux: state=disabled
       when: ansible_os_family == "RedHat"
-
-    - name: Disable Firewalls
+    - name: Stop Firewalls
       service:
         name: "{{ (ansible_os_family == 'RedHat') | ternary('firewalld', 'ufw') }}"
         state: stopped
@@ -20,31 +18,31 @@
   become: yes
   tasks:
     - name: Install Netdata
-      shell: "wget -O /tmp/netdata-kickstart.sh https://get.netdata.cloud/kickstart.sh && sh /tmp/netdata-kickstart.sh --non-interactive"
-    
-    - name: Ensure Netdata runs on port 19999
+      shell: "wget -O /tmp/kickstart.sh https://get.netdata.cloud/kickstart.sh && sh /tmp/kickstart.sh --non-interactive"
+    - name: Ensure Port 19999
       lineinfile:
         path: /etc/netdata/netdata.conf
         regexp: 'default port = '
         line: '    default port = 19999'
       notify: Restart Netdata
-
   handlers:
     - name: Restart Netdata
-      service:
-        name: netdata
-        state: restarted
+      service: name=netdata state=restarted
 
 - name: Configure Frontend (Nginx Proxy)
   hosts: frontend
   become: yes
   tasks:
     - name: Install Nginx
-      package:
-        name: nginx
-        state: present
+      package: name=nginx state=present
 
-    - name: Overwrite main nginx.conf to remove default server blocks
+    - name: Wipe and Recreate conf.d directory
+      file:
+        path: /etc/nginx/conf.d
+        state: "{{ item }}"
+      with_items: [ 'absent', 'directory' ]
+
+    - name: Write Clean nginx.conf
       copy:
         dest: /etc/nginx/nginx.conf
         content: |
@@ -52,41 +50,28 @@
           worker_processes auto;
           error_log /var/log/nginx/error.log;
           pid /run/nginx.pid;
-          include /usr/share/nginx/modules/*.conf;
-          events {
-              worker_connections 1024;
-          }
+          events { worker_connections 1024; }
           http {
-              log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
-                                '$status $body_bytes_sent "$http_referer" '
-                                '"$http_user_agent" "$http_x_forwarded_for"';
-              access_log  /var/log/nginx/access.log  main;
-              sendfile            on;
-              tcp_nopush          on;
-              tcp_nodelay         on;
-              keepalive_timeout   65;
-              types_hash_max_size 4096;
-              include             /etc/nginx/mime.types;
-              default_type        application/octet-stream;
+              include /etc/nginx/mime.types;
+              default_type application/octet-stream;
+              access_log /var/log/nginx/access.log;
+              sendfile on;
               include /etc/nginx/conf.d/*.conf;
           }
 
-    - name: Create Proxy Configuration
+    - name: Write Proxy Config
       copy:
         dest: /etc/nginx/conf.d/proxy.conf
         content: |
           server {
               listen 80 default_server;
-              server_name _;
               location / {
                   proxy_pass http://{{ groups['backend'][0] }}:19999;
                   proxy_set_header Host $host;
-                  proxy_set_header X-Real-IP $remote_addr;
-                  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
               }
           }
 
-    - name: Start Nginx Service
+    - name: Final Service Start
       service:
         name: nginx
         state: restarted
